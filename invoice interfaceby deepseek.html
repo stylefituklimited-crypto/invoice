@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Invoice Generator Pro - Ultimate</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- LIBRARIES -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<style>
+:root{--primary:#2f6fed;--bg:#fff;--text:#222;}
+.theme-classic{--primary:#2f6fed;--bg:#fff;--text:#222;}
+.theme-minimal{--primary:#000;--bg:#fff;--text:#111;}
+.theme-dark{--primary:#4f8cff;--bg:#1e1e1e;--text:#fff;}
+.theme-green{--primary:#2fa36b;--bg:#fff;--text:#222;}
+.theme-orange{--primary:#ff7a00;--bg:#fff;--text:#222;}
+body{background:#f4f6fb;font-family:Arial,sans-serif;padding:20px;}
+.container{max-width:1200px;margin:auto;display:grid;grid-template-columns:1fr 2fr;gap:20px;}
+.panel,.invoice{background:var(--bg);color:var(--text);padding:20px;border-radius:12px;box-shadow:0 10px 25px rgba(0,0,0,.08);}
+h3{color:var(--primary);margin-top:0;}
+input,textarea,select,button{width:100%;padding:8px;margin-bottom:10px;border:1px solid #ccc;border-radius:5px;}
+button{background:var(--primary);color:#fff;font-weight:bold;cursor:pointer;}
+table{width:100%;border-collapse:collapse;margin-top:15px;}
+th,td{border:1px solid #ddd;padding:8px;}
+th{background:#f1f4ff;}
+.logo{max-width:150px;margin-bottom:10px;}
+.total-box{max-width:300px;margin-left:auto;}
+@media(max-width:900px){.container{grid-template-columns:1fr;}}
+.receipt-mode .invoice{max-width:400px;margin:auto;background:#fff;border:2px dashed #ccc;}
+.receipt-mode .client-info{display:none;}
+.receipt-mode .company-details{font-size:12px;}
+</style>
+</head>
+
+<body class="theme-classic">
+
+<div class="container">
+
+<div class="panel">
+<h3>Invoice Settings</h3>
+<label>Invoice Style</label>
+<select onchange="setTheme(this.value)">
+<option value="theme-classic">Classic Blue</option>
+<option value="theme-minimal">Minimal White</option>
+<option value="theme-dark">Dark Pro</option>
+<option value="theme-green">Green Business</option>
+<option value="theme-orange">Orange Creative</option>
+</select>
+
+<label>Currency</label>
+<select id="currency" onchange="calc()">
+<option value="€">€ Euro</option>
+<option value="$">$ Dollar</option>
+<option value="£">£ Pound</option>
+</select>
+
+<label>Company Logo</label>
+<input type="file" accept="image/*" onchange="loadLogo(event)">
+<input id="companyName" placeholder="Company Name">
+<textarea id="companyDetails" placeholder="Company Address & Details"></textarea>
+
+<input id="clientName" placeholder="Client Name">
+<textarea id="clientDetails" placeholder="Client Address"></textarea>
+
+<input id="invoiceNumber" placeholder="Invoice Number" readonly>
+<input id="invoiceDate" type="date" value="">
+
+<button onclick="addItem()">➕ Add Item</button>
+<label>Tax (%)</label>
+<input type="number" id="tax" value="0" oninput="calc()">
+
+<button onclick="exportPDF()">📄 Export PDF (A4)</button>
+<button onclick="saveInvoice()">💾 Save Invoice</button>
+<button onclick="loadInvoice()">📂 Load Invoice</button>
+<button onclick="toggleReceipt()">🔄 Toggle Receipt Mode</button>
+<button onclick="exportEmail()">✉️ Email Invoice</button>
+
+</div>
+
+<div class="invoice" id="invoice">
+<div style="display:flex;justify-content:space-between;">
+<div class="company-details">
+<img id="logoOut" class="logo">
+<div id="companyOut"></div>
+<small id="companyInfo" class="company-info"></small>
+</div>
+<div>
+<strong id="invoiceTitle">Invoice</strong><br>
+No: <span id="invOut"></span><br>
+Date: <span id="dateOut"></span>
+</div>
+</div>
+<hr>
+<div class="client-info">
+<p><strong>Billed To:</strong><br>
+<span id="clientOut"></span><br>
+<small id="clientInfo"></small>
+</p>
+</div>
+<table id="items">
+<thead><tr><th>Description</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
+<tbody></tbody>
+</table>
+<div class="total-box">
+<table>
+<tr><th>Subtotal</th><td id="subtotal">0</td></tr>
+<tr><th>Tax</th><td id="taxOut">0</td></tr>
+<tr><th>Grand Total</th><td id="grandTotal">0</td></tr>
+</table>
+</div>
+</div>
+</div>
+
+<script>
+let invoiceCounter = 1;
+let isReceipt = false;
+
+function setTheme(theme) {
+    document.body.className = theme;
+}
+
+function loadLogo(e) {
+    const reader = new FileReader();
+    reader.onload = () => {
+        document.getElementById('logoOut').src = reader.result;
+    };
+    reader.readAsDataURL(e.target.files[0]);
+}
+
+function addItem() {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+        <td><input class="item-desc"></td>
+        <td><input type="number" class="item-qty" value="1" oninput="calc()"></td>
+        <td><input type="number" class="item-price" value="0" oninput="calc()"></td>
+        <td class="rowTotal">0</td>
+    `;
+    document.querySelector("#items tbody").appendChild(row);
+    calc();
+}
+
+function calc() {
+    let subtotal = 0;
+    const currency = document.getElementById("currency").value;
+    
+    // Calculate each row
+    document.querySelectorAll("#items tbody tr").forEach(row => {
+        const qty = row.querySelector(".item-qty").value || 0;
+        const price = row.querySelector(".item-price").value || 0;
+        const total = qty * price;
+        subtotal += total;
+        row.querySelector(".rowTotal").textContent = currency + total.toFixed(2);
+    });
+    
+    // Update totals
+    const taxRate = document.getElementById("tax").value || 0;
+    const taxAmount = subtotal * (taxRate / 100);
+    const grandTotal = subtotal + taxAmount;
+    
+    document.getElementById("subtotal").textContent = currency + subtotal.toFixed(2);
+    document.getElementById("taxOut").textContent = currency + taxAmount.toFixed(2);
+    document.getElementById("grandTotal").textContent = currency + grandTotal.toFixed(2);
+}
+
+async function exportPDF() {
+    try {
+        const { jsPDF } = window.jspdf;
+        const invoice = document.getElementById("invoice");
+        
+        // Create PDF with A4 size (210 x 297 mm)
+        const pdf = new jsPDF({
+            orientation: 'portrait',
+            unit: 'mm',
+            format: 'a4',
+            putOnlyUsedFonts: true,
+            floatPrecision: 16
+        });
+        
+        // Set A4 dimensions
+        const pageWidth = 210;
+        const pageHeight = 297;
+        
+        // Use html2canvas to capture the invoice
+        const canvas = await html2canvas(invoice, {
+            scale: 2,
+            useCORS: true,
+            backgroundColor: '#ffffff'
+        });
+        
+        const imgData = canvas.toDataURL('image/png');
+        
+        // Calculate dimensions to fit A4
+        const imgWidth = pageWidth - 20; // 10mm margins on each side
+        const imgHeight = (canvas.height * imgWidth) / canvas.width;
+        
+        // Add image to PDF
+        pdf.addImage(imgData, 'PNG', 10, 10, imgWidth, imgHeight);
+        
+        // Generate filename
+        const invoiceNum = document.getElementById("invoiceNumber").value || '0000';
+        const title = isReceipt ? 'Receipt' : 'Invoice';
+        pdf.save(`${title}-${invoiceNum}.pdf`);
+        
+    } catch (error) {
+        console.error('PDF export error:', error);
+        alert('Error generating PDF: ' + error.message);
+    }
+}
+
+function saveInvoice() {
+    const data = {
+        companyName: document.getElementById("companyName").value,
+        companyDetails: document.getElementById("companyDetails").value,
+        clientName: document.getElementById("clientName").value,
+        clientDetails: document.getElementById("clientDetails").value,
+        invoiceNumber: document.getElementById("invoiceNumber").value,
+        invoiceDate: document.getElementById("invoiceDate").value,
+        tax: document.getElementById("tax").value,
+        items: []
+    };
+    
+    document.querySelectorAll('#items tbody tr').forEach(row => {
+        data.items.push({
+            desc: row.querySelector('.item-desc').value,
+            qty: row.querySelector('.item-qty').value,
+            price: row.querySelector('.item-price').value
+        });
+    });
+    
+    localStorage.setItem('savedInvoice', JSON.stringify(data));
+    alert('Invoice saved to browser storage!');
+}
+
+function loadInvoice() {
+    const data = JSON.parse(localStorage.getItem('savedInvoice'));
+    if (!data) {
+        alert('No saved invoice found');
+        return;
+    }
+    
+    // Load basic data
+    document.getElementById("companyName").value = data.companyName || '';
+    document.getElementById("companyDetails").value = data.companyDetails || '';
+    document.getElementById("clientName").value = data.clientName || '';
+    document.getElementById("clientDetails").value = data.clientDetails || '';
+    document.getElementById("invoiceNumber").value = data.invoiceNumber || '';
+    document.getElementById("invoiceDate").value = data.invoiceDate || '';
+    document.getElementById("tax").value = data.tax || 0;
+    
+    // Clear and load items
+    const tbody = document.querySelector('#items tbody');
+    tbody.innerHTML = '';
+    
+    if (data.items && data.items.length > 0) {
+        data.items.forEach(item => {
+            addItem();
+            const lastRow = tbody.lastElementChild;
+            lastRow.querySelector('.item-desc').value = item.desc || '';
+            lastRow.querySelector('.item-qty').value = item.qty || 1;
+            lastRow.querySelector('.item-price').value = item.price || 0;
+        });
+    }
+    
+    calc();
+    alert('Invoice loaded successfully!');
+}
+
+function toggleReceipt() {
+    isReceipt = !isReceipt;
+    
+    // Update title
+    document.getElementById("invoiceTitle").textContent = isReceipt ? 'RECEIPT' : 'INVOICE';
+    
+    // Toggle receipt mode class
+    const invoiceDiv = document.getElementById("invoice");
+    if (isReceipt) {
+        invoiceDiv.classList.add("receipt-mode");
+        document.body.classList.add("receipt-mode");
+    } else {
+        invoiceDiv.classList.remove("receipt-mode");
+        document.body.classList.remove("receipt-mode");
+    }
+    
+    // Update button text
+    const buttons = document.querySelectorAll('button');
+    buttons.forEach(btn => {
+        if (btn.textContent.includes('Toggle Receipt')) {
+            btn.textContent = isReceipt ? '🔄 Toggle Invoice Mode' : '🔄 Toggle Receipt Mode';
+        }
+    });
+    
+    alert(`Switched to ${isReceipt ? 'Receipt' : 'Invoice'} mode`);
+}
+
+function exportEmail() {
+    // Get all invoice data
+    const invoiceData = {
+        title: isReceipt ? 'Receipt' : 'Invoice',
+        number: document.getElementById("invoiceNumber").value || '0000',
+        date: document.getElementById("invoiceDate").value || new Date().toISOString().split('T')[0],
+        company: document.getElementById("companyName").value || 'Your Company',
+        client: document.getElementById("clientName").value || 'Client Name',
+        items: [],
+        subtotal: document.getElementById("subtotal").textContent,
+        tax: document.getElementById("taxOut").textContent,
+        total: document.getElementById("grandTotal").textContent
+    };
+    
+    // Collect items
+    document.querySelectorAll('#items tbody tr').forEach(row => {
+        invoiceData.items.push({
+            description: row.querySelector('.item-desc').value || '',
+            quantity: row.querySelector('.item-qty').value || 0,
+            price: row.querySelector('.item-price').value || 0,
+            total: row.querySelector('.rowTotal').textContent || '0'
+        });
+    });
+    
+    // Create email content
+    const emailSubject = `${invoiceData.title} ${invoiceData.number} from ${invoiceData.company}`;
+    
+    let emailBody = `
+${invoiceData.title}
+========================
+${invoiceData.title} Number: ${invoiceData.number}
+Date: ${invoiceData.date}
+
+From: ${invoiceData.company}
+To: ${invoiceData.client}
+
+Items:
+`;
+    
+    invoiceData.items.forEach((item, index) => {
+        emailBody += `${index + 1}. ${item.description}: ${item.quantity} x ${item.price} = ${item.total}\n`;
+    });
+    
+    emailBody += `
+------------------------
+Subtotal: ${invoiceData.subtotal}
+Tax: ${invoiceData.tax}
+GRAND TOTAL: ${invoiceData.total}
+
+Thank you for your business!
+`;
+    
+    // Create a downloadable .eml file
+    const blob = new Blob([emailBody], { type: 'message/rfc822' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${invoiceData.title.toLowerCase()}-${invoiceData.number}.eml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    
+    // For actual email sending, you would need server-side code
+    alert('Email file generated! For actual email sending, implement server-side integration.');
+}
+
+// Update invoice preview in real-time
+setInterval(() => {
+    // Update company info
+    document.getElementById('companyOut').textContent = document.getElementById('companyName').value || 'Your Company Name';
+    document.getElementById('companyInfo').textContent = document.getElementById('companyDetails').value || 'Address, Phone, Email';
+    
+    // Update client info
+    document.getElementById('clientOut').textContent = document.getElementById('clientName').value || 'Client Name';
+    document.getElementById('clientInfo').textContent = document.getElementById('clientDetails').value || 'Client Address';
+    
+    // Update invoice number
+    let invNum = document.getElementById('invoiceNumber').value;
+    if (!invNum) {
+        invNum = 'INV' + String(invoiceCounter).padStart(4, '0');
+        document.getElementById('invoiceNumber').value = invNum;
+        invoiceCounter++;
+    }
+    document.getElementById('invOut').textContent = invNum;
+    
+    // Update date
+    let invDate = document.getElementById('invoiceDate').value;
+    if (!invDate) {
+        invDate = new Date().toISOString().split('T')[0];
+        document.getElementById('invoiceDate').value = invDate;
+    }
+    document.getElementById('dateOut').textContent = invDate;
+    
+    calc();
+}, 500);
+
+// Initialize with one item
+window.onload = function() {
+    addItem();
+    document.getElementById('invoiceDate').value = new Date().toISOString().split('T')[0];
+};
+</script>
+
+</body>
+</html>
